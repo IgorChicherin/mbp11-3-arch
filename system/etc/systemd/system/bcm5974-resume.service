@@ -1,0 +1,18 @@
+# Reload the bcm5974 trackpad driver after every resume from suspend.
+# After S3 the MacBookPro11,3 trackpad sometimes comes back out of multitouch mode and floods
+# libinput with "bcm5974: kernel bug: Invalid fake finger state" (~1000+/min), which stalls the
+# Wayland compositor (it reads the trackpad through libinput) for 5-15 s at a time.
+# Reloading the driver puts it back; the keyboard (usbhid) is not touched.
+[Unit]
+Description=Reload bcm5974 trackpad driver after resume
+After=suspend.target
+
+[Service]
+Type=oneshot
+# Give USB a moment to re-enumerate the internal keyboard/trackpad (1-12) after wake-up.
+ExecStartPre=/usr/bin/sleep 2
+ExecStart=/usr/bin/modprobe -r bcm5974
+ExecStart=/usr/bin/modprobe bcm5974
+
+[Install]
+WantedBy=suspend.target

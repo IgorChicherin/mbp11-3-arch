@@ -1,0 +1,6 @@
+# ZFSBootMenu properties on zroot/arch0/root. Curated by hand; collect.sh never overwrites it.
+# Default kernel is stock linux-lts. After building linux-lts-mbp, switch it yourself (README step 5):
+#   sudo zfs set org.zfsbootmenu:kernel='vmlinuz-linux-lts-mbp$' zroot/arch0/root
+org.zfsbootmenu:rootprefix	root=ZFS=
+org.zfsbootmenu:kernel	vmlinuz-linux-lts$
+org.zfsbootmenu:commandline	spl.spl_hostid=0x00bab10c zswap.enabled=0 rw quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0

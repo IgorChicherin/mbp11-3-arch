@@ -1,0 +1,13 @@
+# Units this configuration relies on. Curated by hand; collect.sh never overwrites it.
+# ZFS (archinstall_zfs enables these)
+zfs-import-scan.service
+zfs-zed.service
+zfs-import.target
+zfs-volumes.target
+zfs.target
+# Network and power
+NetworkManager.service
+power-profiles-daemon.service
+# install-configs.sh enables these
+reclocked.service
+bcm5974-resume.service

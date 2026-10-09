@@ -1,0 +1,15 @@
+Global:
+  ManageImages: true
+  BootMountPoint: /boot/efi
+  DracutConfDir: /etc/zfsbootmenu/dracut.conf.d
+  InitCPIOConfig: /etc/zfsbootmenu/mkinitcpio.conf
+  InitCPIO: false
+Components:
+  Enabled: false
+EFI:
+  ImageDir: /var/lib/zfsbootmenu
+  Versions: false
+  Enabled: true
+Kernel:
+  Prefix: vmlinuz
+  CommandLine: zbm.import_policy=hostid zbm.timeout=2 ro quiet loglevel=0

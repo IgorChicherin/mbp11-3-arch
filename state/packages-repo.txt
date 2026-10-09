@@ -1,0 +1,47 @@
+# Repo packages this MacBookPro11,3 configuration needs on top of a fresh archinstall_zfs install.
+# Hardware, boot and build only: no desktop environment, no applications. Curated by hand; collect.sh never
+# overwrites it.
+# One package per line; full-line comments only. install-packages.sh installs these.
+# Not listed, installed by their own README steps: zfs-dkms (step 4), linux-lts-mbp* (step 5, built locally).
+
+# Boot: rEFInd in front of ZFSBootMenu, dracut initramfs, ZFS userland, microcode, boot splash
+refind
+efibootmgr
+dracut
+zfs-utils
+intel-ucode
+plymouth
+
+# Kernel: stock LTS fallback, headers and DKMS for the zfs and wl modules
+linux-lts
+linux-lts-headers
+dkms
+linux-firmware
+
+# Wi-Fi: Broadcom BCM4360 (wl), power save via NetworkManager
+broadcom-wl-dkms
+networkmanager
+iw
+
+# Graphics: i915 + nouveau/NVK offload, Intel VA-API, Intel Vulkan (hasvk: what apps fall back to while the
+# dGPU is locked off), test tools
+mesa
+mesa-utils
+vulkan-nouveau
+vulkan-intel
+libva-intel-driver
+libva-utils
+
+# Building linux-lts-mbp and reclocked (makepkg -s pulls the remaining kernel makedepends)
+base-devel
+git
+libdrm
+bc
+rust
+rust-bindgen
+rust-src
+
+# Power and memory
+power-profiles-daemon
+powertop
+zram-generator
