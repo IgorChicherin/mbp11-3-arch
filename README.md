@@ -124,8 +124,9 @@ Reboot and check `zfs version` (userland and kmod must match).
 
 ## 5. Patched kernel `linux-lts-mbp`
 
-Arch's `linux-lts` plus reclocked's gmux/nouveau power-cycle patches (0002–0015) and our 0016. Without them,
-powering the dGPU back on can hang this model; 0016 lets on-demand (auto) mode cut its power through gmux. The build takes 1.5–3 h on this laptop. To build it on a faster machine (Arch or a container) and bring the
+Arch's `linux-lts` plus reclocked's gmux/nouveau power-cycle patches (0002–0015) and our 0016–0017. Without them,
+powering the dGPU back on can hang this model; 0016 makes on-demand power really cut it through gmux, 0017
+adds the `dgpu_disabled` switch behind `reclockctl dgpu-off`. The build takes 1.5–3 h on this laptop. To build it on a faster machine (Arch or a container) and bring the
 packages over, see [docs/build-kernel-elsewhere.md](docs/build-kernel-elsewhere.md).
 
 ```sh
@@ -244,12 +245,22 @@ the dGPU on in about a second; 5–7 s after the last app stops using it, gmux c
 runtime PM: `/etc/modprobe.d/nouveau-runpm.conf` loads nouveau with `runpm=1` on `*-lts-mbp` kernels only,
 `[dpower] backend = runpm` in `/etc/reclocked.conf` lets reclocked follow those wakes, and patch 0016 makes the
 sleep a real power cut. Anything that lists GPUs (any Vulkan app) wakes the card briefly.
-`sudo reclockctl dgpu-on` holds it on (e.g. before a long session); `sudo reclockctl dgpu-auto` hands it back.
+
+| Command | dGPU |
+|---|---|
+| `sudo reclockctl dgpu-auto` (default) | on demand: `DRI_PRIME=1` apps wake it, gmux cuts power 5–7 s after the last one |
+| `sudo reclockctl dgpu-on` | held powered (no wake delay, e.g. for a long game); rendering still only for `DRI_PRIME=1` apps, the desktop stays on the iGPU |
+| `sudo reclockctl dgpu-off` | locked off: new apps can't open it (`DRI_PRIME=1` GL and Vulkan fall back to the iGPU), and gmux cuts power once apps already on it exit |
+
+`dgpu-off` uses the kernel switch from patch 0017 (`/sys/bus/pci/devices/0000:01:00.0/dgpu_disabled`); apps that
+already have the dGPU open, and the compositor, keep working. Overrides last until reboot or the next command;
+stopping reclocked unlocks the dGPU. Vulkan apps need `vulkan-intel` (hasvk) to fall back to the iGPU.
 
 Checking that it's really off: `tools/gpu-temps.sh` prints the dGPU state and the SMC GPU sensors. A powered-off
 dGPU shows `suspended` and `TG1D` = `-127` (no reading); a card that is only asleep but still powered stays at
 55–60 °C. `tools/cycle-test.sh 10` stress-tests it (Vulkan load, wake from off, sleep; no sudo) and
 `tools/kernel-check.sh` counts the gmux power cycles and shows nouveau/gmux warnings.
+`cat /run/reclocked/status` shows `"open_lock"`: 1 locked (`dgpu-off`), 0 open, -1 kernel without 0017.
 
 Pstates `07`/`0a`/`0e` only. **Never `0f`**: it locks up Kepler. All of this needs the patched kernel: on a stock
 kernel never run `dgpu-on`, reboot instead. On the stock fallback kernel the modprobe rule doesn't apply, so the
