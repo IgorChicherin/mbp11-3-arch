@@ -255,6 +255,14 @@ sleep a real power cut. Anything that lists GPUs (any Vulkan app) wakes the card
 `dgpu-off` uses the kernel switch from patch 0017 (`/sys/bus/pci/devices/0000:01:00.0/dgpu_disabled`); apps that
 already have the dGPU open, and the compositor, keep working. Overrides last until reboot or the next command;
 stopping reclocked unlocks the dGPU. Vulkan apps need `vulkan-intel` (hasvk) to fall back to the iGPU.
+`tools/lock-test.sh` checks `dgpu-off`/`dgpu-auto` end to end.
+
+**Lock the dGPU on low battery.** Desktop power profiles run scripts as your user, with no password prompt, so
+`tools/setup-lowbattery.sh` first installs `/etc/sudoers.d/reclockctl` (checked with `visudo -c`, mode 0440): only
+`reclockctl dgpu-off|dgpu-auto|dgpu-on` become passwordless. Then set the low-battery profile to run
+`sudo -n /usr/local/bin/reclockctl dgpu-off` when it starts and `sudo -n /usr/local/bin/reclockctl dgpu-auto` when
+it ends (KDE: System Settings → Power Management → On Low Battery → Run custom script). Overrides don't survive a
+reboot: the lock comes back only when the profile is entered again.
 
 Checking that it's really off: `tools/gpu-temps.sh` prints the dGPU state and the SMC GPU sensors. A powered-off
 dGPU shows `suspended` and `TG1D` = `-127` (no reading); a card that is only asleep but still powered stays at
