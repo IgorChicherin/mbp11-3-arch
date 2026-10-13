@@ -45,3 +45,8 @@ rust-src
 power-profiles-daemon
 powertop
 zram-generator
+
+# Sound: mixer and test tools (aplay, amixer, hda-verb), limiter plugin for the speaker crossover
+alsa-utils
+alsa-tools
+swh-plugins

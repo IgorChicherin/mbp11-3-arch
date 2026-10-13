@@ -12,6 +12,8 @@ files=(
   /etc/systemd/system/bcm5974-resume.service
   /etc/NetworkManager/conf.d/wifi-powersave.conf
   /etc/modprobe.d/nouveau-runpm.conf
+  /etc/modprobe.d/zfs-arc.conf
+  /etc/modprobe.d/cs4208-split.conf
   /etc/dracut.conf.d/zfs.conf
   /etc/zfsbootmenu/config.yaml
   /etc/zfsbootmenu/dracut.conf.d/azfs.conf

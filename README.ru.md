@@ -126,9 +126,10 @@ sudo azfs-update-zbm
 
 ## 5. Патченое ядро `linux-lts-mbp`
 
-Это `linux-lts` из Arch плюс патчи reclocked для gmux и nouveau (0002–0015) и наши 0016–0017. Они позволяют выключать и
+Это `linux-lts` из Arch плюс патчи reclocked для gmux и nouveau (0002–0015) и наши 0016–0019. Они позволяют выключать и
 включать dGPU; 0016 делает так, что питание по требованию действительно отключается через gmux, а 0017 добавляет
-переключатель `dgpu_disabled` для `reclockctl dgpu-off`. Без них повторное включение dGPU может повесить эту модель. Сборка на этом ноутбуке занимает
+переключатель `dgpu_disabled` для `reclockctl dgpu-off`. Патчи 0018 и 0019 относятся к звуку: отдельные устройства
+для высокочастотных и низкочастотных динамиков и микрофон гарнитуры (см. «Звук» в шаге 7). Без них повторное включение dGPU может повесить эту модель. Сборка на этом ноутбуке занимает
 1,5–3 часа. Как собрать его на более мощной машине (Arch или контейнер) и перенести пакеты, описано в
 [docs/build-kernel-elsewhere.ru.md](docs/build-kernel-elsewhere.ru.md).
 
@@ -140,6 +141,14 @@ cd linux-lts-mbp && MAKEFLAGS="-j$(nproc)" makepkg -sfC
 # прогресс и оставшееся время из другого терминала: ~/Projects/reclocked/build-progress.sh
 sudo pacman -U linux-lts-mbp-[0-9]*.pkg.tar.zst linux-lts-mbp-headers-*.pkg.tar.zst
 ```
+
+**Необязательно: урезанная сборка.** `./mkpkgbuild.sh --stripped --prepare` собирает только те модули, которые
+нужны этому MacBook (281 вместо 6410 на 6.18.55): сборка намного короче, установка меньше. Список — это
+`pkgbuild/modules.seen` (`./update-modules.sh` добавляет загруженные сейчас модули) плюс ведущийся вручную
+`pkgbuild/modules.extra` (USB-накопители и файловые системы, Docker, Thunderbolt и внешние мониторы, Bluetooth и
+USB-периферия). `./check-modules.sh` проверяет, что каждый модуль из списка попал в ядро. Устройство, драйвера
+которого нет в списке, не определяется: загрузите стоковый `linux-lts` (Ctrl+K), подключите устройство, запустите
+`./update-modules.sh` и пересоберите ядро. Подробности: `~/Projects/reclocked/pkgbuild/README.md`.
 
 До перезагрузки проверьте, что DKMS собрал для него zfs и wl, а хуки создали его образы:
 
@@ -194,6 +203,8 @@ reclockctl status && reclockctl switch-status   # topology igd, dGPU off
 |---|---|
 | `/etc/reclocked.conf`, `reclocked.service` | выключение dGPU, pstate, кривые вентиляторов |
 | `/etc/modprobe.d/nouveau-runpm.conf` | питание dGPU по требованию (`runpm=1` на `*-lts-mbp`); скрипт печатает команду пересборки initramfs |
+| `/etc/modprobe.d/zfs-arc.conf` | ограничивает кеш ZFS (ARC) 4 ГБ вместо стандартных «RAM − 1 ГБ»; нужна та же пересборка initramfs |
+| `/etc/modprobe.d/cs4208-split.conf` | `split_speakers=1`: низкочастотные динамики на отдельном звуковом устройстве (патч 0018); действует после перезагрузки |
 | `bcm5974-resume.service` | перезагрузка драйвера тачпада после каждого пробуждения (см. «Известные проблемы») |
 | `/etc/NetworkManager/conf.d/wifi-powersave.conf` | энергосбережение Wi-Fi; проверка: `iw dev wlp3s0 get power_save` |
 | `/etc/systemd/zram-generator.conf` | zram, как по умолчанию у установщика |
@@ -204,6 +215,32 @@ reclockctl status && reclockctl switch-status   # topology igd, dGPU off
 ZFSBootMenu, он печатает команды для snapshot, `dracut-install.sh` и `azfs-update-zbm`. Изменённый
 `refind.conf` начинает действовать со следующей загрузки.
 
+### Звук: динамики и микрофон гарнитуры
+
+Нужно ядро `linux-lts-mbp` с патчами 0018 и 0019 (шаг 5); на штатном `linux-lts` звук работает как обычное
+стерео, а микрофон гарнитуры не работает. Подробности, измерения и сами патчи лежат в
+`~/Projects/mbp11-3-sound` (`README.ru.md`).
+
+**Динамики.** Штатный Linux подаёт один и тот же сигнал на высокочастотные и низкочастотные динамики. С файлом
+`/etc/modprobe.d/cs4208-split.conf` (ставится выше) низкочастотные получают своё устройство, а пользовательская
+служба PipeWire делит частоты и добавляет ограничитель. PipeWire, pipewire-pulse и WirePlumber приходят вместе
+с рабочим столом; `swh-plugins` (ограничитель) есть в `state/packages-repo.txt`.
+
+```sh
+~/Projects/mbp11-3-sound/pipewire/setup.sh    # без sudo: ставит ~/.local/bin/mbp-speakers и пользовательскую службу
+tools/speaker-split-test.sh                   # высокочастотные, низкочастотные, обе пары
+mbp-speakers show                             # значения настройки; менять так: mbp-speakers tune КЛЮЧ=ЗНАЧЕНИЕ
+```
+
+Пользоваться нужно выходом «MacBook Speakers». При подключении наушников служба сама переключается на
+«Built-in Audio» и обратно. Служба запускается, только когда включён `split_speakers`, поэтому штатное ядро
+она не затрагивает.
+
+**Микрофон гарнитуры.** Настраивать нечего: с патчем 0019 драйвер определяет гарнитуру при подключении, и
+PipeWire переключает вход на «Microphone». Проверка: `~/Projects/mbp11-3-sound/tools/headset-mic-test.sh`.
+Пока подключена гарнитура с микрофоном, звуковой чип не засыпает. Выключить эту часть:
+`echo 'options snd_hda_codec_cs420x headset_mic=0' | sudo tee /etc/modprobe.d/cs4208-headset.conf` и перезагрузка.
+
 ### Заставка загрузки (plymouth)
 
 Для заставки нужны три вещи: пакет `plymouth` (шаг 3), модуль plymouth от dracut в initramfs (в
@@ -212,10 +249,17 @@ ZFSBootMenu, он печатает команды для snapshot, `dracut-insta
 из `state/zfs-zbm-properties.txt` и пересоберите initramfs:
 
 ```sh
-sudo zfs set org.zfsbootmenu:commandline='spl.spl_hostid=0x00bab10c zswap.enabled=0 rw quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0' zroot/arch0/root
+sudo zfs set org.zfsbootmenu:commandline='spl.spl_hostid=0x00bab10c zswap.enabled=0 rw quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 preempt=full' zroot/arch0/root
 sudo plymouth-set-default-theme <тема>   # необязательно: список — plymouth-set-default-theme -l; без -R
 ls /usr/lib/modules/*/pkgbase | sed 's|^/||' | sudo /usr/local/bin/dracut-install.sh
 ```
+
+### Командная строка ядра: `preempt=full`
+
+В командной строке выше есть и `preempt=full`: ядро собрано с `PREEMPT_DYNAMIC` и по умолчанию работает в режиме
+`voluntary`; `full` сохраняет отзывчивость рабочего стола под нагрузкой (например, при сборке ядра) ценой
+небольшой потери пропускной способности. Проверка после перезагрузки: `sudo cat /sys/kernel/debug/sched/preempt`
+показывает `(full)`.
 
 ### Профиль питания
 

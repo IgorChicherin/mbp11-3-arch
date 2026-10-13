@@ -124,9 +124,10 @@ Reboot and check `zfs version` (userland and kmod must match).
 
 ## 5. Patched kernel `linux-lts-mbp`
 
-Arch's `linux-lts` plus reclocked's gmux/nouveau power-cycle patches (0002–0015) and our 0016–0017. Without them,
+Arch's `linux-lts` plus reclocked's gmux/nouveau power-cycle patches (0002–0015) and our 0016–0019. Without them,
 powering the dGPU back on can hang this model; 0016 makes on-demand power really cut it through gmux, 0017
-adds the `dgpu_disabled` switch behind `reclockctl dgpu-off`. The build takes 1.5–3 h on this laptop. To build it on a faster machine (Arch or a container) and bring the
+adds the `dgpu_disabled` switch behind `reclockctl dgpu-off`. 0018 and 0019 are for sound: separate tweeter and
+woofer devices, and the headset microphone (see "Sound" in step 7). The build takes 1.5–3 h on this laptop. To build it on a faster machine (Arch or a container) and bring the
 packages over, see [docs/build-kernel-elsewhere.md](docs/build-kernel-elsewhere.md).
 
 ```sh
@@ -137,6 +138,14 @@ cd linux-lts-mbp && MAKEFLAGS="-j$(nproc)" makepkg -sfC
 # progress/ETA from another terminal: ~/Projects/reclocked/build-progress.sh
 sudo pacman -U linux-lts-mbp-[0-9]*.pkg.tar.zst linux-lts-mbp-headers-*.pkg.tar.zst
 ```
+
+**Optional: stripped build.** `./mkpkgbuild.sh --stripped --prepare` builds only the modules this MacBook uses
+(281 instead of 6410 on 6.18.55), which makes the build far shorter and the install smaller. The list is
+`pkgbuild/modules.seen` (run `./update-modules.sh` to add what is loaded now) plus the hand-kept
+`pkgbuild/modules.extra` (USB storage and filesystems, Docker, Thunderbolt and external displays, Bluetooth and
+USB peripherals). `./check-modules.sh` verifies that every listed module made it into the kernel. A device whose
+driver isn't listed is not detected: boot stock `linux-lts` (Ctrl+K), plug it in, run `./update-modules.sh`, and
+rebuild. Details: `~/Projects/reclocked/pkgbuild/README.md`.
 
 Before rebooting, check that DKMS built zfs and wl for it, and that the hooks made its images:
 
@@ -189,6 +198,8 @@ What it installs:
 |---|---|
 | `/etc/reclocked.conf`, `reclocked.service` | dGPU power off, pstates, fan curves |
 | `/etc/modprobe.d/nouveau-runpm.conf` | on-demand dGPU power (`runpm=1` on `*-lts-mbp`); the script prints the initramfs rebuild |
+| `/etc/modprobe.d/zfs-arc.conf` | caps the ZFS cache (ARC) at 4 GiB instead of the default RAM − 1 GiB; needs the same initramfs rebuild |
+| `/etc/modprobe.d/cs4208-split.conf` | `split_speakers=1`: woofers on their own sound device (patch 0018); applies after a reboot |
 | `bcm5974-resume.service` | reloads the trackpad driver after every resume (see "Known issues") |
 | `/etc/NetworkManager/conf.d/wifi-powersave.conf` | Wi-Fi power save; check: `iw dev wlp3s0 get power_save` |
 | `/etc/systemd/zram-generator.conf` | zram, same as the installer's default |
@@ -199,6 +210,31 @@ Take a snapshot before installing boot files. The script never rebuilds anything
 ZFSBootMenu files change, it prints the snapshot, `dracut-install.sh` and `azfs-update-zbm` commands to run.
 A changed `refind.conf` works from the next boot.
 
+### Sound: speakers and headset microphone
+
+Needs `linux-lts-mbp` with patches 0018 and 0019 (step 5); on stock `linux-lts` sound works as plain stereo and
+the headset microphone does not work. Details, measurements and the patches themselves:
+`~/Projects/mbp11-3-sound` (`README.md`).
+
+**Speakers.** Stock Linux sends the same signal to the tweeters and the woofers. With
+`/etc/modprobe.d/cs4208-split.conf` (installed above) the woofers get their own device, and a per-user PipeWire
+service splits the frequencies and adds a limiter. PipeWire, pipewire-pulse and WirePlumber come with the
+desktop; `swh-plugins` (the limiter) is in `state/packages-repo.txt`.
+
+```sh
+~/Projects/mbp11-3-sound/pipewire/setup.sh    # no sudo: installs ~/.local/bin/mbp-speakers and its user unit
+tools/speaker-split-test.sh                   # tweeters, woofers, both
+mbp-speakers show                             # tuning values; change with: mbp-speakers tune KEY=VALUE
+```
+
+The output to use is "MacBook Speakers". With headphones plugged in, the service switches to "Built-in Audio"
+and back by itself. The service starts only when `split_speakers` is on, so the stock kernel is unaffected.
+
+**Headset microphone.** Nothing to configure: with patch 0019 the driver detects a headset at plug-in, and
+PipeWire switches the input to "Microphone". Check with `~/Projects/mbp11-3-sound/tools/headset-mic-test.sh`.
+While a headset with a microphone is plugged in, the audio chip does not sleep. To turn this part off:
+`echo 'options snd_hda_codec_cs420x headset_mic=0' | sudo tee /etc/modprobe.d/cs4208-headset.conf`, then reboot.
+
 ### Boot splash (plymouth)
 
 The splash needs three things: the `plymouth` package (step 3), dracut's plymouth module in the initramfs (this
@@ -207,10 +243,16 @@ the kernel command line. The installer's command line may not have `splash`; set
 `state/zfs-zbm-properties.txt`, then rebuild the initramfs:
 
 ```sh
-sudo zfs set org.zfsbootmenu:commandline='spl.spl_hostid=0x00bab10c zswap.enabled=0 rw quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0' zroot/arch0/root
+sudo zfs set org.zfsbootmenu:commandline='spl.spl_hostid=0x00bab10c zswap.enabled=0 rw quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 preempt=full' zroot/arch0/root
 sudo plymouth-set-default-theme <theme>   # optional: plymouth-set-default-theme -l lists them; don't use -R
 ls /usr/lib/modules/*/pkgbase | sed 's|^/||' | sudo /usr/local/bin/dracut-install.sh
 ```
+
+### Kernel command line: `preempt=full`
+
+The command line above also carries `preempt=full`: the kernel is built with `PREEMPT_DYNAMIC` and defaults to
+`voluntary`; `full` keeps the desktop responsive under load (a kernel build, for example) for a small loss of
+throughput. Check after a reboot: `sudo cat /sys/kernel/debug/sched/preempt` shows `(full)`.
 
 ### Power profile
 

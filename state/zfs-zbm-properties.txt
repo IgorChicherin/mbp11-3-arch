@@ -3,4 +3,4 @@
 #   sudo zfs set org.zfsbootmenu:kernel='vmlinuz-linux-lts-mbp$' zroot/arch0/root
 org.zfsbootmenu:rootprefix	root=ZFS=
 org.zfsbootmenu:kernel	vmlinuz-linux-lts$
-org.zfsbootmenu:commandline	spl.spl_hostid=0x00bab10c zswap.enabled=0 rw quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0
+org.zfsbootmenu:commandline	spl.spl_hostid=0x00bab10c zswap.enabled=0 rw quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 preempt=full
