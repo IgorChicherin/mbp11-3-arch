@@ -13,6 +13,14 @@ initramfs dracut.
 `state/` holds what isn't a file: ZFSBootMenu properties, package list, enabled units; it is curated by hand.
 `collect.sh` refreshes `system/` from a running system. Nothing is applied automatically: every step below is a command you run.
 
+This repo holds only the personal part: configs, units, package lists and this runbook. The hardware work lives
+in two other repositories, which the steps below clone and use:
+
+| Repository | What is in it |
+|---|---|
+| [reclocked](https://github.com/IgorChicherin/reclocked) (fork, branch `patch/linux-6.18.54-kernel`) | everything for the NVIDIA dGPU: the kernel patch series, the `linux-lts-mbp` package generator, the `reclocked` daemon, test tools, and [how the dGPU behaves day to day](https://github.com/IgorChicherin/reclocked/blob/patch/linux-6.18.54-kernel/docs/mbp11-3.md) |
+| [mbp11-3-sound](https://github.com/IgorChicherin/mbp11-3-sound) | everything for sound: the two CS4208 kernel patches, the speaker crossover for PipeWire, test scripts |
+
 | Part | Model | Driver |
 |---|---|---|
 | CPU | Core i7 Haswell (Crystal Well) | `intel_cpufreq` + schedutil |
@@ -124,22 +132,25 @@ Reboot and check `zfs version` (userland and kmod must match).
 
 ## 5. Patched kernel `linux-lts-mbp`
 
-Arch's `linux-lts` plus reclocked's gmux/nouveau power-cycle patches (0002–0015) and our 0016–0019. Without them,
-powering the dGPU back on can hang this model; 0016 makes on-demand power really cut it through gmux, 0017
-adds the `dgpu_disabled` switch behind `reclockctl dgpu-off`. 0018 and 0019 are for sound: separate tweeter and
-woofer devices, and the headset microphone (see "Sound" in step 7). The build takes 1.5–3 h on this laptop. To build it on a faster machine (Arch or a container) and bring the
-packages over, see [docs/build-kernel-elsewhere.md](docs/build-kernel-elsewhere.md).
+Arch's `linux-lts` plus two patch sets: the dGPU series from reclocked (`patches/kernel/0002–0017`; without it,
+powering the dGPU back on can hang this model) and the two sound patches from mbp11-3-sound (separate tweeter
+and woofer devices, the headset microphone). The package generator lives in reclocked and takes the sound patches
+through `--extra-patches`. The build takes 1.5–3 h on this laptop, about 30 min stripped. To build it on a faster
+machine (Arch or a container) and bring the packages over, see
+`~/Projects/reclocked/docs/build-kernel-elsewhere.md`.
 
 ```sh
+git clone https://github.com/IgorChicherin/mbp11-3-sound ~/Projects/mbp11-3-sound    # reclocked itself was cloned in step 2
 cd ~/Projects/reclocked/pkgbuild
-./mkpkgbuild.sh --prepare               # clone Arch's linux-lts, apply patches, stop on any failure
+# clone Arch's linux-lts, apply both patch sets, stop on any failure:
+./mkpkgbuild.sh --prepare --extra-patches=$HOME/Projects/mbp11-3-sound/patches
 cd linux-lts-mbp && MAKEFLAGS="-j$(nproc)" makepkg -sfC
 # interrupted? resume with: MAKEFLAGS="-j$(nproc)" makepkg -sef   (never -C when resuming)
 # progress/ETA from another terminal: ~/Projects/reclocked/build-progress.sh
 sudo pacman -U linux-lts-mbp-[0-9]*.pkg.tar.zst linux-lts-mbp-headers-*.pkg.tar.zst
 ```
 
-**Optional: stripped build.** `./mkpkgbuild.sh --stripped --prepare` builds only the modules this MacBook uses
+**Optional: stripped build.** Adding `--stripped` to the `mkpkgbuild.sh` line builds only the modules this MacBook uses
 (281 instead of 6410 on 6.18.55), which makes the build far shorter and the install smaller. The list is
 `pkgbuild/modules.seen` (run `./update-modules.sh` to add what is loaded now) plus the hand-kept
 `pkgbuild/modules.extra` (USB storage and filesystems, Docker, Thunderbolt and external displays, Bluetooth and
@@ -199,7 +210,7 @@ What it installs:
 | `/etc/reclocked.conf`, `reclocked.service` | dGPU power off, pstates, fan curves |
 | `/etc/modprobe.d/nouveau-runpm.conf` | on-demand dGPU power (`runpm=1` on `*-lts-mbp`); the script prints the initramfs rebuild |
 | `/etc/modprobe.d/zfs-arc.conf` | caps the ZFS cache (ARC) at 4 GiB instead of the default RAM − 1 GiB; needs the same initramfs rebuild |
-| `/etc/modprobe.d/cs4208-split.conf` | `split_speakers=1`: woofers on their own sound device (patch 0018); applies after a reboot |
+| `/etc/modprobe.d/cs4208-split.conf` | `split_speakers=1`: woofers on their own sound device (needs the sound patches); applies after a reboot |
 | `bcm5974-resume.service` | reloads the trackpad driver after every resume (see "Known issues") |
 | `/etc/NetworkManager/conf.d/wifi-powersave.conf` | Wi-Fi power save; check: `iw dev wlp3s0 get power_save` |
 | `/etc/systemd/zram-generator.conf` | zram, same as the installer's default |
@@ -212,9 +223,13 @@ A changed `refind.conf` works from the next boot.
 
 ### Sound: speakers and headset microphone
 
-Needs `linux-lts-mbp` with patches 0018 and 0019 (step 5); on stock `linux-lts` sound works as plain stereo and
-the headset microphone does not work. Details, measurements and the patches themselves:
-`~/Projects/mbp11-3-sound` (`README.md`).
+Needs the kernel from step 5, which includes the two sound patches; on stock `linux-lts` sound works as plain
+stereo and the headset microphone does not work. Everything about sound lives in
+[mbp11-3-sound](https://github.com/IgorChicherin/mbp11-3-sound), cloned in step 5: the patches, the PipeWire setup, the test scripts and the
+measurements. For a kernel that is not built with reclocked's generator, its
+`apply-patches.sh /path/to/linux` applies the two patches to any 6.18 tree.
+
+Check: `modinfo snd_hda_codec_cs420x | grep parm` lists `split_speakers` and `headset_mic`.
 
 **Speakers.** Stock Linux sends the same signal to the tweeters and the woofers. With
 `/etc/modprobe.d/cs4208-split.conf` (installed above) the woofers get their own device, and a per-user PipeWire
@@ -223,14 +238,14 @@ desktop; `swh-plugins` (the limiter) is in `state/packages-repo.txt`.
 
 ```sh
 ~/Projects/mbp11-3-sound/pipewire/setup.sh    # no sudo: installs ~/.local/bin/mbp-speakers and its user unit
-tools/speaker-split-test.sh                   # tweeters, woofers, both
+~/Projects/mbp11-3-sound/tools/speaker-split-test.sh   # tweeters, woofers, both
 mbp-speakers show                             # tuning values; change with: mbp-speakers tune KEY=VALUE
 ```
 
 The output to use is "MacBook Speakers". With headphones plugged in, the service switches to "Built-in Audio"
 and back by itself. The service starts only when `split_speakers` is on, so the stock kernel is unaffected.
 
-**Headset microphone.** Nothing to configure: with patch 0019 the driver detects a headset at plug-in, and
+**Headset microphone.** Nothing to configure: the patched driver detects a headset at plug-in, and
 PipeWire switches the input to "Microphone". Check with `~/Projects/mbp11-3-sound/tools/headset-mic-test.sh`.
 While a headset with a microphone is plugged in, the audio chip does not sleep. To turn this part off:
 `echo 'options snd_hda_codec_cs420x headset_mic=0' | sudo tee /etc/modprobe.d/cs4208-headset.conf`, then reboot.
@@ -281,40 +296,11 @@ sudo zfs snapshot zroot/arch0/root@tuned-$(date +%F)
 
 # Daily use
 
-**dGPU power.** The panel always runs on the iGPU, and the dGPU is powered off while nothing uses it, as on
-macOS. Start an app with `DRI_PRIME=1` (or "run on the discrete GPU" in your desktop's menu) and the kernel powers
-the dGPU on in about a second; 5–7 s after the last app stops using it, gmux cuts its power again. This is nouveau
-runtime PM: `/etc/modprobe.d/nouveau-runpm.conf` loads nouveau with `runpm=1` on `*-lts-mbp` kernels only,
-`[dpower] backend = runpm` in `/etc/reclocked.conf` lets reclocked follow those wakes, and patch 0016 makes the
-sleep a real power cut. Anything that lists GPUs (any Vulkan app) wakes the card briefly.
-
-| Command | dGPU |
-|---|---|
-| `sudo reclockctl dgpu-auto` (default) | on demand: `DRI_PRIME=1` apps wake it, gmux cuts power 5–7 s after the last one |
-| `sudo reclockctl dgpu-on` | held powered (no wake delay, e.g. for a long game); rendering still only for `DRI_PRIME=1` apps, the desktop stays on the iGPU |
-| `sudo reclockctl dgpu-off` | locked off: new apps can't open it (`DRI_PRIME=1` GL and Vulkan fall back to the iGPU), and gmux cuts power once apps already on it exit |
-
-`dgpu-off` uses the kernel switch from patch 0017 (`/sys/bus/pci/devices/0000:01:00.0/dgpu_disabled`); apps that
-already have the dGPU open, and the compositor, keep working. Overrides last until reboot or the next command;
-stopping reclocked unlocks the dGPU. Vulkan apps need `vulkan-intel` (hasvk) to fall back to the iGPU.
-`tools/lock-test.sh` checks `dgpu-off`/`dgpu-auto` end to end.
-
-**Lock the dGPU on low battery.** Desktop power profiles run scripts as your user, with no password prompt, so
-`tools/setup-lowbattery.sh` first installs `/etc/sudoers.d/reclockctl` (checked with `visudo -c`, mode 0440): only
-`reclockctl dgpu-off|dgpu-auto|dgpu-on` become passwordless. Then set the low-battery profile to run
-`sudo -n /usr/local/bin/reclockctl dgpu-off` when it starts and `sudo -n /usr/local/bin/reclockctl dgpu-auto` when
-it ends (KDE: System Settings → Power Management → On Low Battery → Run custom script). Overrides don't survive a
-reboot: the lock comes back only when the profile is entered again.
-
-Checking that it's really off: `tools/gpu-temps.sh` prints the dGPU state and the SMC GPU sensors. A powered-off
-dGPU shows `suspended` and `TG1D` = `-127` (no reading); a card that is only asleep but still powered stays at
-55–60 °C. `tools/cycle-test.sh 10` stress-tests it (Vulkan load, wake from off, sleep; no sudo) and
-`tools/kernel-check.sh` counts the gmux power cycles and shows nouveau/gmux warnings.
-`cat /run/reclocked/status` shows `"open_lock"`: 1 locked (`dgpu-off`), 0 open, -1 kernel without 0017.
-
-Pstates `07`/`0a`/`0e` only. **Never `0f`**: it locks up Kepler. All of this needs the patched kernel: on a stock
-kernel never run `dgpu-on`, reboot instead. On the stock fallback kernel the modprobe rule doesn't apply, so the
-dGPU just stays powered there.
+**dGPU.** The panel always runs on the iGPU; the dGPU is powered off while nothing uses it and wakes for
+`DRI_PRIME=1` apps. `sudo reclockctl dgpu-auto`, `dgpu-on` and `dgpu-off` switch between on demand, held on and
+locked off. How it works, the low-battery lock, the test tools and the messages it logs are described in
+reclocked: `~/Projects/reclocked/docs/mbp11-3.md`. Two rules to remember: pstates `07`/`0a`/`0e` only, **never
+`0f`**; and on a stock kernel never run `dgpu-on`, reboot instead.
 
 **After every Arch `linux-lts` update**, rebuild the patched kernel: step 5, from `./mkpkgbuild.sh --prepare` on.
 Snapshot first, and check `dkms status` before rebooting. A new LTS series (e.g. 6.24) needs a new port of patch
@@ -342,15 +328,9 @@ Checked and not applied:
   `bcm5974-resume.service` (step 7) reloads the driver after every resume. Manual fix:
   `sudo modprobe -r bcm5974 && sudo modprobe bcm5974`. `./hang-report.sh` collects compositor and kernel logs around
   stalls into `~/hang-report.txt`.
-- Every resume logs `nouveau 0000:01:00.0: Unable to change power state from D0 to D3hot, device inaccessible`.
-  gmux has cut the dGPU's power; this is harmless.
-- Every dGPU wake logs `apple_gmux: Discrete card was power-cycled, client reinit required`: that is
-  the power cut working. A kernel built with an early 0016 also logs `Unable to change power state from D3cold to
-  D0, device inaccessible` on each wake: harmless (nouveau waits for the PCIe link and recovers); the current 0016
-  waits first, so the next rebuild drops it.
-- Without 0016, runtime PM only puts the dGPU in PCI D3hot: it stays powered and warm (`TG1D` 57–62 °C, fans up),
-  and after dozens of fast wake/sleep cycles KWin froze. Always build `linux-lts-mbp` with 0016.
 - The `wl` driver taints the kernel and logs a `field-spanning write` warning at load. It does no harm.
+- nouveau and apple-gmux log messages at resume and at every dGPU wake. They are expected:
+  `~/Projects/reclocked/docs/mbp11-3.md`, "Messages and known issues".
 
 # Rules
 
