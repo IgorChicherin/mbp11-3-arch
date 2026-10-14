@@ -209,7 +209,7 @@ What it installs:
 |---|---|
 | `/etc/reclocked.conf`, `reclocked.service` | dGPU power off, pstates, fan curves |
 | `/etc/modprobe.d/nouveau-runpm.conf` | on-demand dGPU power (`runpm=1` on `*-lts-mbp`); the script prints the initramfs rebuild |
-| `/etc/modprobe.d/zfs-arc.conf` | caps the ZFS cache (ARC) at 4 GiB instead of the default RAM − 1 GiB; needs the same initramfs rebuild |
+| `/etc/modprobe.d/zfs-arc.conf` | caps the ZFS cache (ARC) at 1 GiB instead of the default RAM − 1 GiB; needs the same initramfs rebuild; another size: `set-arc-max.sh` (below) |
 | `/etc/modprobe.d/cs4208-split.conf` | `split_speakers=1`: woofers on their own sound device (needs the sound patches); applies after a reboot |
 | `bcm5974-resume.service` | reloads the trackpad driver after every resume (see "Known issues") |
 | `/etc/NetworkManager/conf.d/wifi-powersave.conf` | Wi-Fi power save; check: `iw dev wlp3s0 get power_save` |
@@ -268,6 +268,22 @@ ls /usr/lib/modules/*/pkgbase | sed 's|^/||' | sudo /usr/local/bin/dracut-instal
 The command line above also carries `preempt=full`: the kernel is built with `PREEMPT_DYNAMIC` and defaults to
 `voluntary`; `full` keeps the desktop responsive under load (a kernel build, for example) for a small loss of
 throughput. Check after a reboot: `sudo cat /sys/kernel/debug/sched/preempt` shows `(full)`.
+
+### ZFS cache (ARC) limit
+
+`/etc/modprobe.d/zfs-arc.conf` caps the ARC at 1 GiB. To set another limit, give `set-arc-max.sh` the size:
+
+```sh
+./set-arc-max.sh 1G        # bytes, or a K/M/G suffix (powers of 1024)
+./set-arc-max.sh default   # remove the cap: the OpenZFS default, RAM − 1 GiB
+```
+
+The script snapshots `zroot/arch0/root`, writes the conf to `system/` in this repo and to `/etc`, applies the limit
+now and rebuilds the initramfs of every kernel. zfs loads from the initramfs, so without the rebuild the old limit
+comes back at boot. The size must be above `c_min` in `/proc/spl/kstat/zfs/arcstats` (1/32 of RAM, about 500 MiB
+here) and below RAM; ZFS ignores anything else. A lower limit doesn't shrink the ARC at once: it gives memory back as
+programs ask for it. `default` takes full effect after a reboot. Check: `cat /sys/module/zfs/parameters/zfs_arc_max`.
+Commit the changed `system/etc/modprobe.d/zfs-arc.conf`.
 
 ### Power profile
 

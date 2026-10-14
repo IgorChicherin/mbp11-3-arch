@@ -213,7 +213,7 @@ reclockctl status && reclockctl switch-status   # topology igd, dGPU off
 |---|---|
 | `/etc/reclocked.conf`, `reclocked.service` | выключение dGPU, pstate, кривые вентиляторов |
 | `/etc/modprobe.d/nouveau-runpm.conf` | питание dGPU по требованию (`runpm=1` на `*-lts-mbp`); скрипт печатает команду пересборки initramfs |
-| `/etc/modprobe.d/zfs-arc.conf` | ограничивает кеш ZFS (ARC) 4 ГБ вместо стандартных «RAM − 1 ГБ»; нужна та же пересборка initramfs |
+| `/etc/modprobe.d/zfs-arc.conf` | ограничивает кеш ZFS (ARC) 1 ГБ вместо стандартных «RAM − 1 ГБ»; нужна та же пересборка initramfs; другой размер: `set-arc-max.sh` (ниже) |
 | `/etc/modprobe.d/cs4208-split.conf` | `split_speakers=1`: низкочастотные динамики на отдельном звуковом устройстве (нужны патчи звука); действует после перезагрузки |
 | `bcm5974-resume.service` | перезагрузка драйвера тачпада после каждого пробуждения (см. «Известные проблемы») |
 | `/etc/NetworkManager/conf.d/wifi-powersave.conf` | энергосбережение Wi-Fi; проверка: `iw dev wlp3s0 get power_save` |
@@ -273,6 +273,22 @@ ls /usr/lib/modules/*/pkgbase | sed 's|^/||' | sudo /usr/local/bin/dracut-instal
 `voluntary`; `full` сохраняет отзывчивость рабочего стола под нагрузкой (например, при сборке ядра) ценой
 небольшой потери пропускной способности. Проверка после перезагрузки: `sudo cat /sys/kernel/debug/sched/preempt`
 показывает `(full)`.
+
+### Лимит кеша ZFS (ARC)
+
+`/etc/modprobe.d/zfs-arc.conf` ограничивает ARC 1 ГБ. Чтобы задать другой лимит, передайте размер `set-arc-max.sh`:
+
+```sh
+./set-arc-max.sh 1G        # байты или суффикс K/M/G (степени 1024)
+./set-arc-max.sh default   # снять лимит: стандарт OpenZFS, RAM − 1 ГБ
+```
+
+Скрипт делает snapshot `zroot/arch0/root`, записывает конфиг в `system/` этого репозитория и в `/etc`, применяет
+лимит сразу и пересобирает initramfs всех ядер. zfs загружается из initramfs, поэтому без пересборки при загрузке
+вернётся старый лимит. Размер должен быть больше `c_min` из `/proc/spl/kstat/zfs/arcstats` (1/32 RAM, здесь около
+500 МБ) и меньше RAM; другие значения ZFS игнорирует. Сниженный лимит не сжимает ARC сразу: память освобождается,
+когда её просят программы. `default` полностью действует после перезагрузки. Проверка:
+`cat /sys/module/zfs/parameters/zfs_arc_max`. Изменённый `system/etc/modprobe.d/zfs-arc.conf` закоммитьте.
 
 ### Профиль питания
 
